@@ -1,0 +1,19 @@
+# Python internals
+__pycache__/
+*.pyc
+
+# Virtual Environments (Windows/Mac/Linux naming conventions)
+venv/
+.venv/
+env/
+.env
+
+# Streamlit - CRITICAL: Never commit your secrets
+.streamlit/secrets.toml
+
+# IDE settings (Optional, keeps personal VS Code settings out of shared repo)
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
