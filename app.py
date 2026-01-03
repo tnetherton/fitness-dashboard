@@ -9,7 +9,39 @@ from sklearn.preprocessing import MinMaxScaler
 st.set_page_config(page_title="Squad Fitness", layout="wide")
 
 # --- CUSTOM CSS ---
-st.markdown("""<style>.big-quote {font-size: 24px;font-style: italic;text-align: center;color: #555;margin-bottom: 40px;}.verse-ref {font-size: 14px;text-align: center;color: #888;margin-top: -20px;margin-bottom: 40px;}.nav-label {font-size: 18px;font-style: italic;color: #444;text-align: center;margin-top: 10px;}div.stButton > button {width: 100%;height: 60px;font-size: 20px;font-weight: bold;border-radius: 10px;border: 1px solid #ddd;}</style>""", unsafe_allow_html=True)
+st.markdown("""
+<style>
+    .big-quote {
+        font-size: 24px;
+        font-style: italic;
+        text-align: center;
+        color: #FFFFFF;  /* Changed from #555 to White */
+        margin-bottom: 40px;
+    }
+    .verse-ref {
+        font-size: 14px;
+        text-align: center;
+        color: #DDDDDD;  /* Light Gray for the reference */
+        margin-top: -20px;
+        margin-bottom: 40px;
+    }
+    .nav-label {
+        font-size: 18px;
+        font-style: italic;
+        color: #FFFFFF;  /* Changed from #444 to White */
+        text-align: center;
+        margin-top: 10px;
+    }
+    div.stButton > button {
+        width: 100%;
+        height: 60px;
+        font-size: 20px;
+        font-weight: bold;
+        border-radius: 10px;
+        border: 1px solid #ddd;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SESSION STATE ---
 if 'current_view' not in st.session_state:
