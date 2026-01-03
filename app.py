@@ -321,4 +321,4 @@ elif st.session_state['current_view'] == 'Leaderboard':
 
     group_3 = ['Plank (Seconds)', '800m Run (Seconds)']
     df_g3 = df_compare.melt(id_vars='User', value_vars=group_3, var_name='Metric', value_name='Value')
-    st.plotly_chart(px.bar(df_g3, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_
+    st.plotly_chart(px.bar(df_g3, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_container_width=True)
