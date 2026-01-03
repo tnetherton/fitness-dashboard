@@ -54,16 +54,16 @@ def navigate_to(view):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. LOAD STRENGTH SHEET (Tab 1)
-    df_strength = conn.read(worksheet="strength", ttl=0)
+    # 1. LOAD STRENGTH SHEET (Use Index 0 = First Tab)
+    # using worksheet=0 is safer than forcing you to match the name perfectly
+    df_strength = conn.read(worksheet=0, ttl=0)
     df_strength.columns = df_strength.columns.str.strip()
     
-    # 2. LOAD MIND SHEET (Tab 2) #
-    # We use a try/except here in case you haven't made the second tab yet
+    # 2. LOAD MIND SHEET (Use Index 1 = Second Tab)
     try:
-        df_mind = conn.read(worksheet="mind and heart", ttl=0)
+        df_mind = conn.read(worksheet=1, ttl=0)
         df_mind.columns = df_mind.columns.str.strip()
-    except:
+    except Exception:
         # Fallback if tab doesn't exist yet
         df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
 
@@ -82,7 +82,7 @@ try:
     df_bench = pd.DataFrame(benchmark_data)
 
 except Exception as e:
-    st.error(f"⚠️ Error connection to Google Sheets.\nError: {e}")
+    st.error(f"⚠️ Error connection to Google Sheets.\nError details: {e}")
     st.stop()
 
 # --- CLEANING & CONSTANTS ---
