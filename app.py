@@ -8,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler
 # --- CONFIG ---
 st.set_page_config(page_title="Squad Fitness", layout="wide")
 
-# --- CUSTOM CSS (For Sleek Buttons & Typography) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     .big-quote {
@@ -37,6 +37,8 @@ st.markdown("""
         height: 60px;
         font-size: 20px;
         font-weight: bold;
+        border-radius: 10px;
+        border: 1px solid #ddd;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -55,9 +57,10 @@ try:
     df = conn.read(ttl=0)
     df.columns = df.columns.str.strip()
     
-    # --- BENCHMARKS (Updated with Verse Goal) ---
+    # --- BENCHMARKS (UPDATED: TOTAL VERSES ACCUMULATED) ---
     benchmark_data = {
         'User': ['Average Joe (30s)', 'Fit Phil (30s)', 'Elite Evan (30s)'],
+        # Strength (Max Lifts)
         'Trap Bar DL (5RM Weight)': [275, 365, 495],
         'Bench (Reps @ BW)': [5, 12, 20],
         'Pull-Ups (Reps)': [5, 12, 25],
@@ -65,7 +68,9 @@ try:
         'Plank (Seconds)': [100, 150, 240],
         'Broad Jump (Dist in)': [84, 96, 110],
         '800m Run (Seconds)': [165, 150, 125],
-        'Verses Memorized': [1, 3, 5] # Weekly Goal Benchmark
+        # Mind & Heart (Total Verses Memorized)
+        # Average: 1/week | Fit: 1/day | Elite: 1000+ (Book memorizers)
+        'Verses Memorized': [52, 365, 1000] 
     }
     df_bench = pd.DataFrame(benchmark_data)
 
@@ -81,7 +86,7 @@ strength_metrics = [
 ]
 mind_metrics = ['Verses Memorized']
 
-# Ensure columns exist
+# Ensure numeric columns exist
 all_metrics = strength_metrics + mind_metrics
 for col in all_metrics:
     if col not in df.columns:
@@ -89,12 +94,11 @@ for col in all_metrics:
     else:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-# Ensure Text Column exists
 if 'Verse Reference' not in df.columns:
     df['Verse Reference'] = ""
 
 # =========================================================
-#  VIEW: HOME (Landing Page)
+#  VIEW: HOME
 # =========================================================
 if st.session_state['current_view'] == 'Home':
     st.title("🛡️ The Full Armor")
@@ -121,7 +125,7 @@ if st.session_state['current_view'] == 'Home':
         st.markdown('<div class="nav-label">"Iron sharpens iron"</div>', unsafe_allow_html=True)
 
 # =========================================================
-#  VIEW: STRENGTH (Original Radar & Trends)
+#  VIEW: STRENGTH
 # =========================================================
 elif st.session_state['current_view'] == 'Strength':
     if st.button("← Back to Home"):
@@ -130,22 +134,25 @@ elif st.session_state['current_view'] == 'Strength':
         
     st.title("💪 Strength: Run with Endurance")
     
-    # User Select
     users = df['User'].unique().tolist()
+    if not users:
+        st.warning("No users found in database.")
+        st.stop()
+
     me = st.sidebar.selectbox("Select Athlete", users)
     my_df = df[df['User'] == me].sort_values(by="Date")
     
     if my_df.empty:
         st.info("No data logged.")
     else:
-        # RADAR LOGIC
+        # RADAR
         all_dates = my_df['Date'].astype(str).tolist()
         default_dates = [all_dates[0], all_dates[-1]] if len(all_dates) > 1 else all_dates
         selected_dates = st.multiselect("Compare Dates:", options=all_dates, default=default_dates)
         
         radar_df = my_df[my_df['Date'].astype(str).isin(selected_dates)].copy()
         
-        # Normalize for Plotting
+        # Normalize
         scaler = MinMaxScaler()
         scaler.fit(my_df[strength_metrics])
         radar_scaled = scaler.transform(radar_df[strength_metrics])
@@ -172,13 +179,14 @@ elif st.session_state['current_view'] == 'Strength':
         )
         st.plotly_chart(fig_radar, use_container_width=True)
 
+        # Trends
         if st.checkbox("📉 Show Trendlines"):
             df_long = my_df.melt(id_vars='Date', value_vars=strength_metrics, var_name='Metric', value_name='Value')
             fig_scatter = px.line(df_long, x='Date', y='Value', color='Metric', markers=True)
             st.plotly_chart(fig_scatter, use_container_width=True)
 
 # =========================================================
-#  VIEW: MIND & HEART (Scripture Tracking)
+#  VIEW: MIND & HEART
 # =========================================================
 elif st.session_state['current_view'] == 'MindHeart':
     if st.button("← Back to Home"):
@@ -188,11 +196,32 @@ elif st.session_state['current_view'] == 'MindHeart':
     st.title("❤️ Mind & Heart: Abide in My Word")
     
     users = df['User'].unique().tolist()
+    if not users:
+        st.stop()
+        
     me = st.sidebar.selectbox("Select Athlete", users)
     my_df = df[df['User'] == me].sort_values(by="Date")
     
-    # 1. VISUALIZATION: Bar Graph of Verses Memorized Over Time
-    st.subheader("📖 Memorization Consistency")
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("📊 Totals")
+        if not my_df.empty:
+            total_verses = my_df['Verses Memorized'].sum()
+            st.metric("Total Verses Hidden in Heart", int(total_verses))
+            st.caption("Benchmark: 52 (Avg) | 365 (Fit) | 1000 (Elite)")
+        else:
+            st.info("No logs.")
+
+    with col2:
+        st.subheader("📖 Verse Log")
+        if 'Verse Reference' in my_df.columns:
+            # Filter for non-empty verses
+            verse_log = my_df[my_df['Verse Reference'].str.len() > 2][['Date', 'Verse Reference', 'Verses Memorized']]
+            st.dataframe(verse_log, use_container_width=True, hide_index=True)
+
+    # Visualization
+    st.subheader("Consistency Tracker")
     if not my_df.empty and my_df['Verses Memorized'].sum() > 0:
         fig_verses = px.bar(
             my_df, 
@@ -200,19 +229,9 @@ elif st.session_state['current_view'] == 'MindHeart':
             y='Verses Memorized', 
             text='Verses Memorized',
             title="New Verses Memorized per Week",
-            color_discrete_sequence=['#4C78A8'] # Muted Blue
+            color_discrete_sequence=['#FF6B6B'] # Heart Red
         )
-        fig_verses.update_traces(textposition='auto')
         st.plotly_chart(fig_verses, use_container_width=True)
-    else:
-        st.info("No scripture data logged yet. Add 'Verses Memorized' to your sheet.")
-
-    # 2. DATA TABLE: The Word
-    st.subheader("📜 My Sword (Verse Log)")
-    if 'Verse Reference' in my_df.columns:
-        # Filter for rows that actually have a verse
-        verse_log = my_df[my_df['Verse Reference'].str.len() > 2][['Date', 'Verse Reference', 'Verses Memorized']]
-        st.dataframe(verse_log, use_container_width=True, hide_index=True)
 
 # =========================================================
 #  VIEW: LEADERBOARD
@@ -224,32 +243,39 @@ elif st.session_state['current_view'] == 'Leaderboard':
 
     st.title("🏆 Leaderboard")
     
-    # Prepare Data (Max for Strength, Sum/Max for Verses)
+    # 1. Calculate Strength MAX
     df_max = df.groupby('User')[strength_metrics].max().reset_index()
     
-    # For verses, we might want TOTAL verses memorized (Sum)
+    # 2. Calculate Verses TOTAL (Sum)
     if 'Verses Memorized' in df.columns:
         df_sum_verses = df.groupby('User')['Verses Memorized'].sum().reset_index()
-        df_max = pd.merge(df_max, df_sum_verses, on='User')
+        # Merge the SUM of verses into the MAX of strength
+        df_max = pd.merge(df_max, df_sum_verses, on='User', how='left').fillna(0)
         
-    # Handle 800m Run (Min is better)
+    # 3. Handle 800m Run (Min is better)
     if '800m Run (Seconds)' in df.columns:
         df_min_run = df.groupby('User')['800m Run (Seconds)'].min().reset_index()
         df_max['800m Run (Seconds)'] = df_min_run['800m Run (Seconds)']
 
+    # 4. Combine with Benchmarks
     df_combined = pd.concat([df_max, df_bench], ignore_index=True)
     
+    # 5. UI Selectors
     col_sel1, col_sel2 = st.columns(2)
     with col_sel1:
         all_names = df_combined['User'].unique().tolist()
         player_a = st.selectbox("Athlete A", all_names, index=0)
     with col_sel2:
-        default_idx = all_names.index('Average Joe (30s)') if 'Average Joe (30s)' in all_names else 0
+        default_idx = all_names.index('Fit Phil (30s)') if 'Fit Phil (30s)' in all_names else 0
         player_b = st.selectbox("Athlete B", all_names, index=default_idx)
 
     df_compare = df_combined[df_combined['User'].isin([player_a, player_b])]
 
-    st.subheader("⚔️ Spiritual Discipline Comparison")
+    # 6. PLOTS
+    st.divider()
+    
+    # A. Spiritual Discipline (TOTALS)
+    st.subheader("⚔️ Spiritual Discipline (Total Verses)")
     if 'Verses Memorized' in df_compare.columns:
         fig_mind = px.bar(
             df_compare, 
@@ -257,11 +283,14 @@ elif st.session_state['current_view'] == 'Leaderboard':
             y='Verses Memorized', 
             color='User', 
             text_auto=True,
-            title="Total Verses Memorized"
+            color_discrete_sequence=px.colors.qualitative.Pastel
         )
+        fig_mind.update_layout(yaxis_title="Total Verses")
         st.plotly_chart(fig_mind, use_container_width=True)
 
+    # B. Strength (MAX)
     st.subheader("🏋️ Strength Comparison")
+    
     # Group 1: Heavy
     group_1 = ['Trap Bar DL (5RM Weight)', 'Farmers Carry (Dist ft)']
     df_g1 = df_compare.melt(id_vars='User', value_vars=group_1, var_name='Metric', value_name='Value')
