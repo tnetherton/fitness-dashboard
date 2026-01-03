@@ -7,143 +7,145 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Squad Fitness", layout="wide")
 
 # --- SESSION STATE SETUP ---
-# Initialize session state for authentication if it doesn't exist
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
 # --- DATA LOADING ---
-# Establish connection to Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # Read Data (TTL=0 means it won't cache, so you see updates instantly)
+    # Read Data (TTL=0 ensures fresh data)
     df = conn.read(ttl=0)
+    # CRITICAL: Clean column names to remove accidental spaces
+    df.columns = df.columns.str.strip()
 except Exception as e:
-    st.error(f"⚠️ Error connection to Google Sheets. Make sure your secrets.toml is correct and the Sheet is public. \n Error details: {e}")
+    st.error(f"⚠️ Error connection to Google Sheets. Check your secrets.\nError: {e}")
     st.stop()
 
 # --- SIDEBAR: LOGIN ---
 st.sidebar.header("User Login")
 
-# 1. Critical Check: Ensure 'User' column exists
 if 'User' not in df.columns:
-    st.error(f"❌ Critical Error: Could not find a 'User' column in your Google Sheet.\nFound columns: {df.columns.tolist()}")
+    st.error("❌ Critical Error: 'User' column not found.")
     st.stop()
 
-# 2. User Selection
 users = df['User'].unique().tolist()
 selected_user = st.sidebar.selectbox("Select Athlete", users)
 
-# 3. Password Logic (Defensive)
-# If 'Password' column is missing, we bypass authentication to prevent crashing.
+# Check for Password Column
 if 'Password' not in df.columns:
-    st.sidebar.warning("⚠️ 'Password' column not found in Sheet. Bypassing login.")
-    st.session_state['authenticated'] = True # Auto-login if no password col
+    st.warning("⚠️ 'Password' column missing. Bypassing auth.")
+    st.session_state['authenticated'] = True
 else:
-    # The column exists, so we show the PIN field
-    entered_pass = st.sidebar.text_input("Enter PIN", type="password")
-    
-    if st.sidebar.button("Login"):
-        # Get the latest row for this user
-        user_row = df[df['User'] == selected_user].iloc[-1]
-        
-        # Check PIN (convert both to string to be safe against formatting diffs)
-        real_pass = str(user_row['Password'])
-        
-        if real_pass == str(entered_pass):
-            st.session_state['authenticated'] = True
-            st.rerun() # Force reload to update the main page
-        else:
-            st.session_state['authenticated'] = False
-            st.sidebar.error("Incorrect PIN")
+    # Login Form
+    with st.sidebar.form("login_form"):
+        entered_pass = st.text_input("Enter PIN", type="password")
+        if st.form_submit_button("Login"):
+            # SAFEGUARD: Check if user actually has rows
+            user_df = df[df['User'] == selected_user]
+            if user_df.empty:
+                st.error("User found in list but has no data rows!")
+            else:
+                user_row = user_df.iloc[-1]
+                # Convert to string to avoid format mismatches
+                if str(user_row['Password']) == str(entered_pass):
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else:
+                    st.session_state['authenticated'] = False
+                    st.error("Incorrect PIN")
 
-# 4. Logout Button
-if st.session_state['authenticated'] and 'Password' in df.columns:
-    if st.sidebar.button("Logout"):
-        st.session_state['authenticated'] = False
-        st.rerun()
+if st.session_state.get('authenticated', False) and st.sidebar.button("Logout"):
+    st.session_state['authenticated'] = False
+    st.rerun()
 
 # --- MAIN DASHBOARD ---
 if st.session_state['authenticated']:
     st.title(f"🚀 {selected_user}'s Performance Dashboard")
     
-    # Get latest data for the user (Sorting by Date to get the most recent entry)
-    if 'Date' in df.columns:
-        user_data = df[df['User'] == selected_user].sort_values(by="Date").iloc[-1]
+    # 1. Filter for User
+    user_df = df[df['User'] == selected_user]
+
+    # 2. ROBUSTNESS CHECK: Does the user have data?
+    if user_df.empty:
+        st.info("👋 Welcome! You don't have any logged workouts yet. Submit a form to see your stats.")
     else:
-        # Fallback if Date is missing
-        user_data = df[df['User'] == selected_user].iloc[-1]
-
-    # --- RADAR CHART FUNCTION ---
-    def make_radar(categories, values, title, color):
-        fig = go.Figure()
-        fig.add_trace(go.Scatterpolar(
-            r=values,
-            theta=categories,
-            fill='toself',
-            name=title,
-            line_color=color
-        ))
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 3] # Fixed Scale: 0 (Start) to 3 (Pro)
-                )),
-            showlegend=False,
-            title=title,
-            margin=dict(t=40, b=20, l=40, r=40)
-        )
-        return fig
-
-    # --- DASHBOARD LAYOUT ---
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        # STRENGTH
-        # Map the display names to the 'SCORE' columns from the Excel template
-        strength_map = {
-            'Trap Bar DL': 'SCORE: Trap Bar',
-            'Bench Press': 'SCORE: Bench',
-            'Pull-Ups': 'SCORE: Pull-Ups',
-            'Farmers Carry': 'SCORE: Carry',
-            'Plank': 'SCORE: Plank',
-            'Broad Jump': 'SCORE: Jump',
-            '800m Run': 'SCORE: Run'
-        }
-        strength_cats = list(strength_map.keys())
+        # 3. Get latest row safely
+        if 'Date' in df.columns:
+            user_data = user_df.sort_values(by="Date").iloc[-1]
+        else:
+            user_data = user_df.iloc[-1]
         
-        # Safely get values, defaulting to 0 if the column doesn't exist yet
-        strength_vals = [user_data.get(col, 0) for col in strength_map.values()]
-        
-        st.plotly_chart(make_radar(strength_cats, strength_vals, "Strength", "red"), use_container_width=True)
-        st.caption("Standards: 1=The Standard, 2=Elite, 3=Pro")
+        # 4. CRITICAL: Fill empty cells (NaN) with 0 to prevent crashes
+        user_data = user_data.fillna(0)
 
-    with col2:
-        # HEART (Placeholder columns - ensure these exist in Sheet or update names)
-        heart_cats = ['Resting HR', 'VO2 Max', 'Zone 2 Mins']
-        heart_vals = [user_data.get(cat, 0) for cat in heart_cats]
-        st.plotly_chart(make_radar(heart_cats, heart_vals, "Heart", "blue"), use_container_width=True)
+        # --- RADAR CHART FUNCTION ---
+        def make_radar(categories, values, title, color):
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=values,
+                theta=categories,
+                fill='toself',
+                name=title,
+                line_color=color
+            ))
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, range=[0, 3])
+                ),
+                showlegend=False,
+                title=title,
+                margin=dict(t=40, b=20, l=40, r=40)
+            )
+            return fig
 
-    with col3:
-        # MIND (Placeholder columns)
-        mind_cats = ['Meditation', 'Sleep', 'Journaling']
-        mind_vals = [user_data.get(cat, 0) for cat in mind_cats]
-        st.plotly_chart(make_radar(mind_cats, mind_vals, "Mind", "green"), use_container_width=True)
+        # --- DASHBOARD LAYOUT ---
+        col1, col2, col3 = st.columns(3)
 
-    # --- HISTORY TABLE ---
-    st.divider()
-    st.subheader("History Log")
-    # Show the user's data, dropping the technical 'Password' column for privacy
-    display_df = df[df['User'] == selected_user].copy()
-    if 'Password' in display_df.columns:
-        display_df = display_df.drop(columns=['Password'])
-        
-    st.dataframe(display_df, use_container_width=True)
+        with col1:
+            # STRENGTH
+            strength_map = {
+                'Trap Bar DL': 'SCORE_TrapBar',
+                'Bench Press': 'SCORE_Bench',
+                'Pull-Ups': 'SCORE_Pullups',
+                'Farmers Carry': 'SCORE_Carry',
+                'Plank': 'SCORE_Plank',
+                'Broad Jump': 'SCORE_Jump',
+                '800m Run': 'SCORE_Run'
+            }
+            # Extract values safely
+            s_cats = list(strength_map.keys())
+            # We already ran .fillna(0) on user_data, so this is safe from NaNs
+            s_vals = [user_data.get(col, 0) for col in strength_map.values()]
+            st.plotly_chart(make_radar(s_cats, s_vals, "Strength", "red"), use_container_width=True)
+
+        with col2:
+            # HEART
+            heart_map = {
+                'Resting HR': 'Heart_RHR',
+                'Zone 2': 'Heart_Zone2_Min'
+            }
+            h_cats = list(heart_map.keys())
+            h_vals = [user_data.get(col, 0) for col in heart_map.values()]
+            st.plotly_chart(make_radar(h_cats, h_vals, "Heart", "blue"), use_container_width=True)
+
+        with col3:
+            # MIND
+            mind_map = {
+                'Meditation': 'Mind_Meditation_Min',
+                'Sleep': 'Mind_Sleep_Hrs'
+            }
+            m_cats = list(mind_map.keys())
+            m_vals = [user_data.get(col, 0) for col in mind_map.values()]
+            st.plotly_chart(make_radar(m_cats, m_vals, "Mind", "green"), use_container_width=True)
+
+        # --- HISTORY TABLE ---
+        st.divider()
+        st.subheader("History Log")
+        display_df = user_df.copy()
+        if 'Password' in display_df.columns:
+            display_df = display_df.drop(columns=['Password'])
+        st.dataframe(display_df, use_container_width=True)
 
 else:
-    # Not authenticated
-    if 'Password' in df.columns:
-        st.info("👈 Please enter your PIN and click Login to view data.")
-    else:
-        st.info("Please select a user.")
+    st.info("👈 Please enter your PIN and click Login.")
