@@ -43,10 +43,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE NAVIGATION ---
+# --- SESSION STATE & NAVIGATION ---
 if 'current_view' not in st.session_state:
     st.session_state['current_view'] = 'Home'
 
+# Callback function for instant navigation
 def navigate_to(view):
     st.session_state['current_view'] = view
 
@@ -54,17 +55,15 @@ def navigate_to(view):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. LOAD STRENGTH SHEET (Use Index 0 = First Tab)
-    # using worksheet=0 is safer than forcing you to match the name perfectly
+    # 1. LOAD STRENGTH SHEET (Index 0)
     df_strength = conn.read(worksheet=0, ttl=0)
     df_strength.columns = df_strength.columns.str.strip()
     
-    # 2. LOAD MIND SHEET (Use Index 1 = Second Tab)
+    # 2. LOAD MIND SHEET (Index 1)
     try:
         df_mind = conn.read(worksheet=1, ttl=0)
         df_mind.columns = df_mind.columns.str.strip()
     except Exception:
-        # Fallback if tab doesn't exist yet
         df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
 
     # --- BENCHMARKS ---
@@ -82,24 +81,24 @@ try:
     df_bench = pd.DataFrame(benchmark_data)
 
 except Exception as e:
-    st.error(f"⚠️ Error connection to Google Sheets.\nError details: {e}")
+    st.error(f"⚠️ Error connection to Google Sheets.\nError: {e}")
     st.stop()
 
-# --- CLEANING & CONSTANTS ---
+# --- CLEANING & METRICS ---
 strength_metrics = [
     'Bench (Reps @ BW)', 'Pull-Ups (Reps)', 'Trap Bar DL (5RM Weight)', 
     'Farmers Carry (Dist ft)', 'Plank (Seconds)', 'Broad Jump (Dist in)', 
     '800m Run (Seconds)'
 ]
 
-# Ensure numeric columns exist in Strength Sheet
+# Ensure columns exist in Strength
 for col in strength_metrics:
     if col not in df_strength.columns:
         df_strength[col] = 0
     else:
         df_strength[col] = pd.to_numeric(df_strength[col], errors='coerce').fillna(0)
 
-# Ensure numeric columns exist in Mind Sheet
+# Ensure columns exist in Mind
 if 'Verses Memorized' not in df_mind.columns:
     df_mind['Verses Memorized'] = 0
 else:
@@ -107,6 +106,23 @@ else:
 
 if 'Verse Reference' not in df_mind.columns:
     df_mind['Verse Reference'] = ""
+
+
+# --- GLOBAL USER SELECTION (Fixes the "Clunky" Issue) ---
+# Create a MASTER LIST of users from both sheets
+users_strength = set(df_strength['User'].unique()) if 'User' in df_strength.columns else set()
+users_mind = set(df_mind['User'].unique()) if 'User' in df_mind.columns else set()
+all_users = sorted(list(users_strength.union(users_mind)))
+
+if not all_users:
+    st.warning("No users found in database.")
+    st.stop()
+
+# The Selectbox is now GLOBAL in the sidebar
+st.sidebar.title("Navigation")
+# 'key' ensures the selection persists across re-runs
+me = st.sidebar.selectbox("Select Athlete", all_users, key="athlete_selector")
+
 
 # =========================================================
 #  VIEW: HOME
@@ -120,42 +136,34 @@ if st.session_state['current_view'] == 'Home':
     
     col1, col2, col3 = st.columns(3)
     
+    # FIX: Use 'on_click' to fix the double-click bug
     with col1:
-        if st.button("💪 STRENGTH"):
-            navigate_to("Strength")
+        st.button("💪 STRENGTH", on_click=navigate_to, args=("Strength",))
         st.markdown('<div class="nav-label">"Run with endurance"</div>', unsafe_allow_html=True)
         
     with col2:
-        if st.button("❤️ MIND & HEART"):
-            navigate_to("MindHeart")
+        st.button("❤️ MIND & HEART", on_click=navigate_to, args=("MindHeart",))
         st.markdown('<div class="nav-label">"Abide in my word"</div>', unsafe_allow_html=True)
 
     with col3:
-        if st.button("🏆 LEADERBOARD"):
-            navigate_to("Leaderboard")
+        st.button("🏆 LEADERBOARD", on_click=navigate_to, args=("Leaderboard",))
         st.markdown('<div class="nav-label">"Iron sharpens iron"</div>', unsafe_allow_html=True)
 
 # =========================================================
 #  VIEW: STRENGTH
 # =========================================================
 elif st.session_state['current_view'] == 'Strength':
-    if st.button("← Back to Home"):
-        navigate_to("Home")
-        st.rerun()
+    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
+        pass # The callback handles the logic
         
     st.title("💪 Strength: Run with Endurance")
+    st.caption(f"Viewing Data for: {me}") # Confirm who is selected
     
-    users = df_strength['User'].unique().tolist()
-    if not users:
-        st.warning("No users found in Strength sheet.")
-        st.stop()
-
-    me = st.sidebar.selectbox("Select Athlete", users)
-    # Filter STRENGTH data
+    # Filter STRENGTH data using the GLOBAL 'me' variable
     my_df = df_strength[df_strength['User'] == me].sort_values(by="Date")
     
     if my_df.empty:
-        st.info("No strength data logged.")
+        st.info(f"No strength data logged for {me} yet.")
     else:
         # RADAR
         all_dates = my_df['Date'].astype(str).tolist()
@@ -201,23 +209,13 @@ elif st.session_state['current_view'] == 'Strength':
 #  VIEW: MIND & HEART
 # =========================================================
 elif st.session_state['current_view'] == 'MindHeart':
-    if st.button("← Back to Home"):
-        navigate_to("Home")
-        st.rerun()
+    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
+        pass
         
     st.title("❤️ Mind & Heart: Abide in My Word")
+    st.caption(f"Viewing Data for: {me}")
     
-    # We use df_mind here
-    if 'User' in df_mind.columns:
-        users = df_mind['User'].unique().tolist()
-    else:
-        users = []
-        
-    if not users:
-        st.info("No logs in 'mind and heart' sheet yet.")
-        st.stop()
-        
-    me = st.sidebar.selectbox("Select Athlete", users)
+    # Filter MIND data using the GLOBAL 'me' variable
     my_df = df_mind[df_mind['User'] == me].sort_values(by="Date")
     
     col1, col2 = st.columns([1, 2])
@@ -229,14 +227,17 @@ elif st.session_state['current_view'] == 'MindHeart':
             st.metric("Total Verses Hidden in Heart", int(total_verses))
             st.caption("Benchmark: 52 (Avg) | 365 (Fit) | 1000 (Elite)")
         else:
-            st.info("No logs.")
+            st.info(f"No scripture logs for {me}.")
+            st.metric("Total Verses Hidden in Heart", 0)
 
     with col2:
         st.subheader("📖 Verse Log")
-        if 'Verse Reference' in my_df.columns:
+        if not my_df.empty and 'Verse Reference' in my_df.columns:
             # Filter for non-empty verses
             verse_log = my_df[my_df['Verse Reference'].str.len() > 2][['Date', 'Verse Reference', 'Verses Memorized']]
             st.dataframe(verse_log, use_container_width=True, hide_index=True)
+        else:
+             st.write("No verses recorded.")
 
     # Visualization
     st.subheader("Consistency Tracker")
@@ -255,9 +256,8 @@ elif st.session_state['current_view'] == 'MindHeart':
 #  VIEW: LEADERBOARD
 # =========================================================
 elif st.session_state['current_view'] == 'Leaderboard':
-    if st.button("← Back to Home"):
-        navigate_to("Home")
-        st.rerun()
+    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
+        pass
 
     st.title("🏆 Leaderboard")
     
@@ -270,17 +270,12 @@ elif st.session_state['current_view'] == 'Leaderboard':
     else:
         df_sum_verses = pd.DataFrame(columns=['User', 'Verses Memorized'])
         
-    # 3. MERGE THE TWO DATASETS
-    # We do an "outer" merge so if someone has logged scripture but not strength (or vice versa), they still appear
+    # 3. MERGE
     df_merged = pd.merge(df_max_strength, df_sum_verses, on='User', how='outer').fillna(0)
         
-    # 4. Handle 800m Run (Min is better)
+    # 4. Handle 800m Run
     if '800m Run (Seconds)' in df_merged.columns:
-        # We need to get the MIN run from the original strength df
         df_min_run = df_strength.groupby('User')['800m Run (Seconds)'].min().reset_index()
-        # Update the merged df
-        # (We map the min values over to the merged df)
-        # Simple way: just drop the column and re-merge
         df_merged = df_merged.drop(columns=['800m Run (Seconds)'])
         df_merged = pd.merge(df_merged, df_min_run, on='User', how='left').fillna(0)
 
@@ -301,7 +296,6 @@ elif st.session_state['current_view'] == 'Leaderboard':
     # 7. PLOTS
     st.divider()
     
-    # A. Spiritual Discipline
     st.subheader("⚔️ Spiritual Discipline (Total Verses)")
     if 'Verses Memorized' in df_compare.columns:
         fig_mind = px.bar(
@@ -314,7 +308,6 @@ elif st.session_state['current_view'] == 'Leaderboard':
         )
         st.plotly_chart(fig_mind, use_container_width=True)
 
-    # B. Strength (MAX)
     st.subheader("🏋️ Strength Comparison")
     
     group_1 = ['Trap Bar DL (5RM Weight)', 'Farmers Carry (Dist ft)']
