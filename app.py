@@ -70,7 +70,7 @@ try:
     except Exception:
         try:
             # Fallback to Name if index fails
-            df_mind = conn.read(worksheet="mind and heart", ttl=0)
+            df_mind = conn.read(worksheet="mind", ttl=0)
         except Exception as e:
             st.warning(f"⚠️ Could not load 'mind and heart' sheet. Check tab name/index. Error: {e}")
             df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
