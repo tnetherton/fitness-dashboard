@@ -47,7 +47,6 @@ st.markdown("""
 if 'current_view' not in st.session_state:
     st.session_state['current_view'] = 'Home'
 
-# Callback function for instant navigation
 def navigate_to(view):
     st.session_state['current_view'] = view
 
@@ -55,16 +54,35 @@ def navigate_to(view):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. LOAD STRENGTH SHEET (Index 0)
-    df_strength = conn.read(worksheet=0, ttl=0)
+    # 1. LOAD STRENGTH SHEET (Tab 1 / Index 0)
+    try:
+        df_strength = conn.read(worksheet=0, ttl=0)
+    except Exception:
+        # Fallback to name if index fails
+        df_strength = conn.read(worksheet="strength", ttl=0)
+        
     df_strength.columns = df_strength.columns.str.strip()
     
-    # 2. LOAD MIND SHEET (Index 1)
+    # 2. LOAD MIND SHEET (Tab 2 / Index 1)
     try:
+        # Try Index 1 first
         df_mind = conn.read(worksheet=1, ttl=0)
-        df_mind.columns = df_mind.columns.str.strip()
     except Exception:
-        df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
+        try:
+            # Fallback to Name if index fails
+            df_mind = conn.read(worksheet="mind and heart", ttl=0)
+        except Exception as e:
+            st.warning(f"⚠️ Could not load 'mind and heart' sheet. Check tab name/index. Error: {e}")
+            df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
+
+    df_mind.columns = df_mind.columns.str.strip()
+
+    # --- CRITICAL FIX: CLEAN USER NAMES ---
+    # This fixes issues where "Garrett " (with space) doesn't match "Garrett"
+    if 'User' in df_strength.columns:
+        df_strength['User'] = df_strength['User'].astype(str).str.strip()
+    if 'User' in df_mind.columns:
+        df_mind['User'] = df_mind['User'].astype(str).str.strip()
 
     # --- BENCHMARKS ---
     benchmark_data = {
@@ -81,7 +99,7 @@ try:
     df_bench = pd.DataFrame(benchmark_data)
 
 except Exception as e:
-    st.error(f"⚠️ Error connection to Google Sheets.\nError: {e}")
+    st.error(f"⚠️ Critical connection error. Details: {e}")
     st.stop()
 
 # --- CLEANING & METRICS ---
@@ -91,14 +109,12 @@ strength_metrics = [
     '800m Run (Seconds)'
 ]
 
-# Ensure columns exist in Strength
 for col in strength_metrics:
     if col not in df_strength.columns:
         df_strength[col] = 0
     else:
         df_strength[col] = pd.to_numeric(df_strength[col], errors='coerce').fillna(0)
 
-# Ensure columns exist in Mind
 if 'Verses Memorized' not in df_mind.columns:
     df_mind['Verses Memorized'] = 0
 else:
@@ -108,8 +124,7 @@ if 'Verse Reference' not in df_mind.columns:
     df_mind['Verse Reference'] = ""
 
 
-# --- GLOBAL USER SELECTION (Fixes the "Clunky" Issue) ---
-# Create a MASTER LIST of users from both sheets
+# --- GLOBAL USER SELECTION ---
 users_strength = set(df_strength['User'].unique()) if 'User' in df_strength.columns else set()
 users_mind = set(df_mind['User'].unique()) if 'User' in df_mind.columns else set()
 all_users = sorted(list(users_strength.union(users_mind)))
@@ -118,9 +133,8 @@ if not all_users:
     st.warning("No users found in database.")
     st.stop()
 
-# The Selectbox is now GLOBAL in the sidebar
 st.sidebar.title("Navigation")
-# 'key' ensures the selection persists across re-runs
+# If Tucker is in the list, he will now definitely appear
 me = st.sidebar.selectbox("Select Athlete", all_users, key="athlete_selector")
 
 
@@ -136,7 +150,6 @@ if st.session_state['current_view'] == 'Home':
     
     col1, col2, col3 = st.columns(3)
     
-    # FIX: Use 'on_click' to fix the double-click bug
     with col1:
         st.button("💪 STRENGTH", on_click=navigate_to, args=("Strength",))
         st.markdown('<div class="nav-label">"Run with endurance"</div>', unsafe_allow_html=True)
@@ -153,13 +166,10 @@ if st.session_state['current_view'] == 'Home':
 #  VIEW: STRENGTH
 # =========================================================
 elif st.session_state['current_view'] == 'Strength':
-    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
-        pass # The callback handles the logic
-        
+    st.button("← Back to Home", on_click=navigate_to, args=("Home",))
     st.title("💪 Strength: Run with Endurance")
-    st.caption(f"Viewing Data for: {me}") # Confirm who is selected
+    st.caption(f"Viewing Data for: {me}")
     
-    # Filter STRENGTH data using the GLOBAL 'me' variable
     my_df = df_strength[df_strength['User'] == me].sort_values(by="Date")
     
     if my_df.empty:
@@ -209,13 +219,10 @@ elif st.session_state['current_view'] == 'Strength':
 #  VIEW: MIND & HEART
 # =========================================================
 elif st.session_state['current_view'] == 'MindHeart':
-    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
-        pass
-        
+    st.button("← Back to Home", on_click=navigate_to, args=("Home",))
     st.title("❤️ Mind & Heart: Abide in My Word")
     st.caption(f"Viewing Data for: {me}")
     
-    # Filter MIND data using the GLOBAL 'me' variable
     my_df = df_mind[df_mind['User'] == me].sort_values(by="Date")
     
     col1, col2 = st.columns([1, 2])
@@ -233,8 +240,7 @@ elif st.session_state['current_view'] == 'MindHeart':
     with col2:
         st.subheader("📖 Verse Log")
         if not my_df.empty and 'Verse Reference' in my_df.columns:
-            # Filter for non-empty verses
-            verse_log = my_df[my_df['Verse Reference'].str.len() > 2][['Date', 'Verse Reference', 'Verses Memorized']]
+            verse_log = my_df[my_df['Verse Reference'].astype(str).str.len() > 2][['Date', 'Verse Reference', 'Verses Memorized']]
             st.dataframe(verse_log, use_container_width=True, hide_index=True)
         else:
              st.write("No verses recorded.")
@@ -256,15 +262,13 @@ elif st.session_state['current_view'] == 'MindHeart':
 #  VIEW: LEADERBOARD
 # =========================================================
 elif st.session_state['current_view'] == 'Leaderboard':
-    if st.button("← Back to Home", on_click=navigate_to, args=("Home",)):
-        pass
-
+    st.button("← Back to Home", on_click=navigate_to, args=("Home",))
     st.title("🏆 Leaderboard")
     
-    # 1. Calculate Strength MAX (From Sheet 1)
+    # 1. Calculate Strength MAX
     df_max_strength = df_strength.groupby('User')[strength_metrics].max().reset_index()
     
-    # 2. Calculate Verses TOTAL (From Sheet 2)
+    # 2. Calculate Verses TOTAL
     if not df_mind.empty:
         df_sum_verses = df_mind.groupby('User')['Verses Memorized'].sum().reset_index()
     else:
