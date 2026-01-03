@@ -1,14 +1,3 @@
-It is great news that you got `secrets.toml` working! That is the professional way to handle data connections.
-
-Here is the **final, polished `app.py**`.
-
-* It reads from **Secrets**.
-* It includes the **Quarterly Consistency Tracker** (instead of weekly).
-* It keeps the global navigation and robust error handling.
-
-**Action:** Replace your entire `app.py` with this code.
-
-```python
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
