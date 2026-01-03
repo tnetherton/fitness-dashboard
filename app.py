@@ -58,7 +58,7 @@ try:
     df_strength = conn.read(worksheet="strength", ttl=0)
     df_strength.columns = df_strength.columns.str.strip()
     
-    # 2. LOAD MIND SHEET (Tab 2)
+    # 2. LOAD MIND SHEET (Tab 2) #
     # We use a try/except here in case you haven't made the second tab yet
     try:
         df_mind = conn.read(worksheet="mind and heart", ttl=0)
