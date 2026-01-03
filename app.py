@@ -54,13 +54,22 @@ def navigate_to(view):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    df = conn.read(ttl=0)
-    df.columns = df.columns.str.strip()
+    # 1. LOAD STRENGTH SHEET (Tab 1)
+    df_strength = conn.read(worksheet="strength", ttl=0)
+    df_strength.columns = df_strength.columns.str.strip()
     
-    # --- BENCHMARKS (UPDATED: TOTAL VERSES ACCUMULATED) ---
+    # 2. LOAD MIND SHEET (Tab 2)
+    # We use a try/except here in case you haven't made the second tab yet
+    try:
+        df_mind = conn.read(worksheet="mind and heart", ttl=0)
+        df_mind.columns = df_mind.columns.str.strip()
+    except:
+        # Fallback if tab doesn't exist yet
+        df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
+
+    # --- BENCHMARKS ---
     benchmark_data = {
         'User': ['Average Joe (30s)', 'Fit Phil (30s)', 'Elite Evan (30s)'],
-        # Strength (Max Lifts)
         'Trap Bar DL (5RM Weight)': [275, 365, 495],
         'Bench (Reps @ BW)': [5, 12, 20],
         'Pull-Ups (Reps)': [5, 12, 25],
@@ -68,8 +77,6 @@ try:
         'Plank (Seconds)': [100, 150, 240],
         'Broad Jump (Dist in)': [84, 96, 110],
         '800m Run (Seconds)': [165, 150, 125],
-        # Mind & Heart (Total Verses Memorized)
-        # Average: 1/week | Fit: 1/day | Elite: 1000+ (Book memorizers)
         'Verses Memorized': [52, 365, 1000] 
     }
     df_bench = pd.DataFrame(benchmark_data)
@@ -78,24 +85,28 @@ except Exception as e:
     st.error(f"⚠️ Error connection to Google Sheets.\nError: {e}")
     st.stop()
 
-# --- CONSTANTS ---
+# --- CLEANING & CONSTANTS ---
 strength_metrics = [
     'Bench (Reps @ BW)', 'Pull-Ups (Reps)', 'Trap Bar DL (5RM Weight)', 
     'Farmers Carry (Dist ft)', 'Plank (Seconds)', 'Broad Jump (Dist in)', 
     '800m Run (Seconds)'
 ]
-mind_metrics = ['Verses Memorized']
 
-# Ensure numeric columns exist
-all_metrics = strength_metrics + mind_metrics
-for col in all_metrics:
-    if col not in df.columns:
-        df[col] = 0
+# Ensure numeric columns exist in Strength Sheet
+for col in strength_metrics:
+    if col not in df_strength.columns:
+        df_strength[col] = 0
     else:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        df_strength[col] = pd.to_numeric(df_strength[col], errors='coerce').fillna(0)
 
-if 'Verse Reference' not in df.columns:
-    df['Verse Reference'] = ""
+# Ensure numeric columns exist in Mind Sheet
+if 'Verses Memorized' not in df_mind.columns:
+    df_mind['Verses Memorized'] = 0
+else:
+    df_mind['Verses Memorized'] = pd.to_numeric(df_mind['Verses Memorized'], errors='coerce').fillna(0)
+
+if 'Verse Reference' not in df_mind.columns:
+    df_mind['Verse Reference'] = ""
 
 # =========================================================
 #  VIEW: HOME
@@ -134,16 +145,17 @@ elif st.session_state['current_view'] == 'Strength':
         
     st.title("💪 Strength: Run with Endurance")
     
-    users = df['User'].unique().tolist()
+    users = df_strength['User'].unique().tolist()
     if not users:
-        st.warning("No users found in database.")
+        st.warning("No users found in Strength sheet.")
         st.stop()
 
     me = st.sidebar.selectbox("Select Athlete", users)
-    my_df = df[df['User'] == me].sort_values(by="Date")
+    # Filter STRENGTH data
+    my_df = df_strength[df_strength['User'] == me].sort_values(by="Date")
     
     if my_df.empty:
-        st.info("No data logged.")
+        st.info("No strength data logged.")
     else:
         # RADAR
         all_dates = my_df['Date'].astype(str).tolist()
@@ -195,12 +207,18 @@ elif st.session_state['current_view'] == 'MindHeart':
         
     st.title("❤️ Mind & Heart: Abide in My Word")
     
-    users = df['User'].unique().tolist()
+    # We use df_mind here
+    if 'User' in df_mind.columns:
+        users = df_mind['User'].unique().tolist()
+    else:
+        users = []
+        
     if not users:
+        st.info("No logs in 'mind and heart' sheet yet.")
         st.stop()
         
     me = st.sidebar.selectbox("Select Athlete", users)
-    my_df = df[df['User'] == me].sort_values(by="Date")
+    my_df = df_mind[df_mind['User'] == me].sort_values(by="Date")
     
     col1, col2 = st.columns([1, 2])
     
@@ -229,7 +247,7 @@ elif st.session_state['current_view'] == 'MindHeart':
             y='Verses Memorized', 
             text='Verses Memorized',
             title="New Verses Memorized per Week",
-            color_discrete_sequence=['#FF6B6B'] # Heart Red
+            color_discrete_sequence=['#FF6B6B']
         )
         st.plotly_chart(fig_verses, use_container_width=True)
 
@@ -243,24 +261,33 @@ elif st.session_state['current_view'] == 'Leaderboard':
 
     st.title("🏆 Leaderboard")
     
-    # 1. Calculate Strength MAX
-    df_max = df.groupby('User')[strength_metrics].max().reset_index()
+    # 1. Calculate Strength MAX (From Sheet 1)
+    df_max_strength = df_strength.groupby('User')[strength_metrics].max().reset_index()
     
-    # 2. Calculate Verses TOTAL (Sum)
-    if 'Verses Memorized' in df.columns:
-        df_sum_verses = df.groupby('User')['Verses Memorized'].sum().reset_index()
-        # Merge the SUM of verses into the MAX of strength
-        df_max = pd.merge(df_max, df_sum_verses, on='User', how='left').fillna(0)
+    # 2. Calculate Verses TOTAL (From Sheet 2)
+    if not df_mind.empty:
+        df_sum_verses = df_mind.groupby('User')['Verses Memorized'].sum().reset_index()
+    else:
+        df_sum_verses = pd.DataFrame(columns=['User', 'Verses Memorized'])
         
-    # 3. Handle 800m Run (Min is better)
-    if '800m Run (Seconds)' in df.columns:
-        df_min_run = df.groupby('User')['800m Run (Seconds)'].min().reset_index()
-        df_max['800m Run (Seconds)'] = df_min_run['800m Run (Seconds)']
+    # 3. MERGE THE TWO DATASETS
+    # We do an "outer" merge so if someone has logged scripture but not strength (or vice versa), they still appear
+    df_merged = pd.merge(df_max_strength, df_sum_verses, on='User', how='outer').fillna(0)
+        
+    # 4. Handle 800m Run (Min is better)
+    if '800m Run (Seconds)' in df_merged.columns:
+        # We need to get the MIN run from the original strength df
+        df_min_run = df_strength.groupby('User')['800m Run (Seconds)'].min().reset_index()
+        # Update the merged df
+        # (We map the min values over to the merged df)
+        # Simple way: just drop the column and re-merge
+        df_merged = df_merged.drop(columns=['800m Run (Seconds)'])
+        df_merged = pd.merge(df_merged, df_min_run, on='User', how='left').fillna(0)
 
-    # 4. Combine with Benchmarks
-    df_combined = pd.concat([df_max, df_bench], ignore_index=True)
+    # 5. Combine with Benchmarks
+    df_combined = pd.concat([df_merged, df_bench], ignore_index=True)
     
-    # 5. UI Selectors
+    # 6. UI Selectors
     col_sel1, col_sel2 = st.columns(2)
     with col_sel1:
         all_names = df_combined['User'].unique().tolist()
@@ -271,10 +298,10 @@ elif st.session_state['current_view'] == 'Leaderboard':
 
     df_compare = df_combined[df_combined['User'].isin([player_a, player_b])]
 
-    # 6. PLOTS
+    # 7. PLOTS
     st.divider()
     
-    # A. Spiritual Discipline (TOTALS)
+    # A. Spiritual Discipline
     st.subheader("⚔️ Spiritual Discipline (Total Verses)")
     if 'Verses Memorized' in df_compare.columns:
         fig_mind = px.bar(
@@ -285,23 +312,19 @@ elif st.session_state['current_view'] == 'Leaderboard':
             text_auto=True,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        fig_mind.update_layout(yaxis_title="Total Verses")
         st.plotly_chart(fig_mind, use_container_width=True)
 
     # B. Strength (MAX)
     st.subheader("🏋️ Strength Comparison")
     
-    # Group 1: Heavy
     group_1 = ['Trap Bar DL (5RM Weight)', 'Farmers Carry (Dist ft)']
     df_g1 = df_compare.melt(id_vars='User', value_vars=group_1, var_name='Metric', value_name='Value')
     st.plotly_chart(px.bar(df_g1, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_container_width=True)
     
-    # Group 2: Bodyweight
     group_2 = ['Bench (Reps @ BW)', 'Pull-Ups (Reps)', 'Broad Jump (Dist in)']
     df_g2 = df_compare.melt(id_vars='User', value_vars=group_2, var_name='Metric', value_name='Value')
     st.plotly_chart(px.bar(df_g2, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_container_width=True)
 
-    # Group 3: Time
     group_3 = ['Plank (Seconds)', '800m Run (Seconds)']
     df_g3 = df_compare.melt(id_vars='User', value_vars=group_3, var_name='Metric', value_name='Value')
     st.plotly_chart(px.bar(df_g3, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_container_width=True)
