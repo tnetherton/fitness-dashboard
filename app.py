@@ -54,13 +54,22 @@ def navigate_to(view):
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 1. LOAD STRENGTH SHEET (Strict)
-    df_strength = conn.read(worksheet="strength", ttl=0)
+    # 1. READ URLS FROM SECRETS
+    # This keeps your code clean and secure-ish
+    strength_url = st.secrets["gsheets"]["strength_url"]
+    mind_url = st.secrets["gsheets"]["mind_url"]
+
+    # 2. LOAD STRENGTH SHEET (From Secret URL)
+    df_strength = conn.read(spreadsheet=strength_url, ttl=0)
     df_strength.columns = df_strength.columns.str.strip()
     
-    # 2. LOAD MIND SHEET (Strict)
-    df_mind = conn.read(worksheet="mind", ttl=0)
-    df_mind.columns = df_mind.columns.str.strip()
+    # 3. LOAD MIND SHEET (From Secret URL)
+    try:
+        df_mind = conn.read(spreadsheet=mind_url, ttl=0)
+        df_mind.columns = df_mind.columns.str.strip()
+    except Exception as e:
+        st.warning(f"⚠️ Could not load Mind tab from URL in secrets. Error: {e}")
+        df_mind = pd.DataFrame(columns=['Date', 'User', 'Verses Memorized', 'Verse Reference'])
 
     # --- BENCHMARKS ---
     benchmark_data = {
@@ -77,11 +86,11 @@ try:
     df_bench = pd.DataFrame(benchmark_data)
 
 except Exception as e:
-    st.error(f"⚠️ Connection Error. Ensure you have tabs named exactly 'strength' and 'mind'.\nDetails: {e}")
+    st.error(f"⚠️ Connection Error. Check your secrets.toml file.\nDetails: {e}")
     st.stop()
 
 # --- CLEANING & METRICS ---
-# Clean Names to match between sheets
+# Clean Names
 if 'User' in df_strength.columns:
     df_strength['User'] = df_strength['User'].astype(str).str.strip()
 if 'User' in df_mind.columns:
@@ -109,7 +118,6 @@ if 'Verse Reference' not in df_mind.columns:
 
 
 # --- GLOBAL USER SELECTION ---
-# Combine users from both lists
 users_strength = set(df_strength['User'].unique()) if 'User' in df_strength.columns else set()
 users_mind = set(df_mind['User'].unique()) if 'User' in df_mind.columns else set()
 all_users = sorted(list(users_strength.union(users_mind)))
@@ -119,7 +127,6 @@ if not all_users:
     st.stop()
 
 st.sidebar.title("Navigation")
-# Global Selector
 me = st.sidebar.selectbox("Select Athlete", all_users, key="athlete_selector")
 
 
@@ -177,7 +184,6 @@ elif st.session_state['current_view'] == 'Strength':
 
             fig_radar = go.Figure()
             for i, date in enumerate(selected_dates):
-                # Safe access to row data
                 row_norm_data = radar_df_norm[radar_df_norm['Date'].astype(str) == date]
                 row_raw_data = radar_df[radar_df['Date'].astype(str) == date]
                 
@@ -315,4 +321,4 @@ elif st.session_state['current_view'] == 'Leaderboard':
 
     group_3 = ['Plank (Seconds)', '800m Run (Seconds)']
     df_g3 = df_compare.melt(id_vars='User', value_vars=group_3, var_name='Metric', value_name='Value')
-    st.plotly_chart(px.bar(df_g3, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_container_width=True)
+    st.plotly_chart(px.bar(df_g3, x='Metric', y='Value', color='User', barmode='group', text_auto=True), use_
